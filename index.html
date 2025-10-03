@@ -122,6 +122,11 @@
             background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
         }
 
+        .mic-button.disabled {
+            background: rgba(255, 255, 255, 0.2);
+            cursor: not-allowed;
+        }
+
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.1); }
@@ -158,6 +163,60 @@
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
+
+        .text-input-container {
+            display: none;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .text-input-container.active {
+            display: flex;
+        }
+
+        .text-input {
+            flex: 1;
+            padding: 15px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 25px;
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+            font-size: 1em;
+            outline: none;
+        }
+
+        .text-input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .send-button {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 1.2em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .send-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-button:active {
+            transform: translateY(0);
+        }
+
+        .device-notice {
+            background: rgba(102, 126, 234, 0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -167,6 +226,10 @@
     </div>
 
     <div class="container">
+        <div id="deviceNotice" class="device-notice" style="display: none;">
+            📱 iPhone detected! Using text input mode. Voice response enabled.
+        </div>
+
         <div class="status" id="status">
             Ready to listen. Tap the microphone to speak.
         </div>
@@ -182,6 +245,19 @@
                 🎤
             </button>
             <div class="transcript" id="transcript"></div>
+            
+            <div class="text-input-container" id="textInputContainer">
+                <input 
+                    type="text" 
+                    class="text-input" 
+                    id="textInput" 
+                    placeholder="Type your message here..."
+                    onkeypress="handleKeyPress(event)"
+                >
+                <button class="send-button" onclick="sendTextMessage()">
+                    📤
+                </button>
+            </div>
         </div>
     </div>
 
@@ -191,10 +267,31 @@
         let recognition;
         let isListening = false;
         let conversationHistory = [];
+        let isIOS = false;
 
         window.onload = function() {
-            initSpeechRecognition();
+            detectDevice();
+            if (!isIOS) {
+                initSpeechRecognition();
+            }
         };
+
+        function detectDevice() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            
+            // Detect iOS/Safari
+            isIOS = /iPad|iPhone|iPod/.test(userAgent) || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            
+            if (isIOS || !('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+                // Show text input for iOS or unsupported browsers
+                document.getElementById('textInputContainer').classList.add('active');
+                document.getElementById('micButton').classList.add('disabled');
+                document.getElementById('micButton').style.cursor = 'not-allowed';
+                document.getElementById('deviceNotice').style.display = 'block';
+                document.getElementById('status').textContent = 'Type your message below';
+            }
+        }
 
         function initSpeechRecognition() {
             if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
@@ -238,12 +335,14 @@
                 recognition.onend = function() {
                     stopListening();
                 };
-            } else {
-                alert('Speech recognition is not supported in your browser. Please use Chrome.');
             }
         }
 
         function toggleListening() {
+            if (isIOS) {
+                return; // Do nothing on iOS
+            }
+            
             if (isListening) {
                 stopListening();
             } else {
@@ -252,7 +351,7 @@
         }
 
         function startListening() {
-            if (recognition) {
+            if (recognition && !isIOS) {
                 isListening = true;
                 recognition.start();
                 document.getElementById('micButton').classList.add('listening');
@@ -268,6 +367,22 @@
             document.getElementById('micButton').classList.remove('listening');
             document.getElementById('micButton').textContent = '🎤';
             updateStatus('Ready to listen. Tap the microphone to speak.');
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendTextMessage();
+            }
+        }
+
+        function sendTextMessage() {
+            const input = document.getElementById('textInput');
+            const text = input.value.trim();
+            
+            if (text) {
+                handleUserInput(text);
+                input.value = '';
+            }
         }
 
         function updateStatus(message) {
@@ -286,7 +401,10 @@
         async function handleUserInput(text) {
             addMessage(text, true);
             updateStatus('Alfred is thinking...');
-            document.getElementById('transcript').innerHTML = '<div class="loading"></div>';
+            
+            if (!isIOS) {
+                document.getElementById('transcript').innerHTML = '<div class="loading"></div>';
+            }
 
             conversationHistory.push({
                 role: 'user',
@@ -328,42 +446,70 @@
 
                 addMessage(assistantResponse, false);
                 speak(assistantResponse);
-                updateStatus('Ready to listen. Tap the microphone to speak.');
-                document.getElementById('transcript').textContent = '';
+                
+                if (isIOS) {
+                    updateStatus('Type your next message');
+                } else {
+                    updateStatus('Ready to listen. Tap the microphone to speak.');
+                    document.getElementById('transcript').textContent = '';
+                }
 
             } catch (error) {
                 console.error('Error:', error);
                 addMessage('Sorry, I encountered an error. Please try again.', false);
-                updateStatus('Error occurred. Ready to try again.');
-                document.getElementById('transcript').textContent = '';
+                updateStatus(isIOS ? 'Error occurred. Try again.' : 'Error occurred. Ready to try again.');
+                if (!isIOS) {
+                    document.getElementById('transcript').textContent = '';
+                }
             }
         }
 
         function speak(text) {
             if ('speechSynthesis' in window) {
+                // Cancel any ongoing speech
+                speechSynthesis.cancel();
+                
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.rate = 1.0;
                 utterance.pitch = 1.0;
                 utterance.volume = 1.0;
                 
-                const voices = speechSynthesis.getVoices();
-                const maleVoice = voices.find(voice => 
-                    voice.name.includes('Male') || 
-                    voice.name.includes('Daniel') ||
-                    voice.name.includes('Google UK English Male')
-                );
-                if (maleVoice) {
-                    utterance.voice = maleVoice;
+                // Wait for voices to load
+                let voices = speechSynthesis.getVoices();
+                if (voices.length === 0) {
+                    speechSynthesis.onvoiceschanged = function() {
+                        voices = speechSynthesis.getVoices();
+                        selectVoiceAndSpeak(utterance, voices);
+                    };
+                } else {
+                    selectVoiceAndSpeak(utterance, voices);
                 }
-
-                speechSynthesis.speak(utterance);
             }
         }
 
+        function selectVoiceAndSpeak(utterance, voices) {
+            // Try to find a good voice
+            const maleVoice = voices.find(voice => 
+                voice.name.includes('Male') || 
+                voice.name.includes('Daniel') ||
+                voice.name.includes('Google UK English Male') ||
+                voice.lang.includes('en')
+            );
+            
+            if (maleVoice) {
+                utterance.voice = maleVoice;
+            }
+
+            speechSynthesis.speak(utterance);
+        }
+
+        // Ensure voices are loaded
         if ('speechSynthesis' in window) {
             speechSynthesis.onvoiceschanged = function() {
                 speechSynthesis.getVoices();
             };
+            // Initial load
+            speechSynthesis.getVoices();
         }
     </script>
 </body>
